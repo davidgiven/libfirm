@@ -53,7 +53,12 @@ extern elf_variant_t be_gas_elf_variant;
  * the .type directive needs to specify @function, #function or %function
  * depending on the target architecture
  */
-extern char                 be_gas_elf_type_char;
+extern char be_gas_elf_type_char;
+
+/**
+ * The suffix appended when GOT entries are emitted.
+ */
+extern const char *be_gas_got_suffix;
 
 /**
  * Switch the current output section to the given out.

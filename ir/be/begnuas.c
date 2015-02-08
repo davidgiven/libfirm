@@ -44,6 +44,7 @@ static object_file_format_t be_gas_object_file_format = OBJECT_FILE_FORMAT_ELF;
 elf_variant_t               be_gas_elf_variant        = ELF_VARIANT_NORMAL;
 bool                        be_gas_emit_types         = true;
 char                        be_gas_elf_type_char      = '@';
+const char                 *be_gas_got_suffix         = "@GOT";
 
 static be_gas_section_t current_section = (be_gas_section_t) -1;
 static pmap            *block_numbers;
@@ -1233,7 +1234,7 @@ void be_gas_emit_entity(const ir_entity *entity)
 	} else if (entity->entity_kind == IR_ENTITY_GOTENTRY) {
 		ir_entity *referenced = entity->attr.got.referenced;
 		be_gas_emit_entity(referenced);
-		be_emit_cstring("@GOTPCREL");
+		be_emit_string(be_gas_got_suffix);
 		return;
 	}
 
@@ -1320,7 +1321,9 @@ static void emit_global(be_main_env_t const *const main_env,
 	/* we already emitted all methods with graphs in other functions like
 	 * be_gas_emit_function_prolog(). All others don't need to be emitted. */
 	be_gas_section_t const section = determine_section(main_env, entity);
-	if (kind == IR_ENTITY_METHOD && section != GAS_SECTION_PIC_TRAMPOLINES)
+	if (kind == IR_ENTITY_METHOD
+	    && (section != GAS_SECTION_PIC_TRAMPOLINES
+	        || be_gas_object_file_format != OBJECT_FILE_FORMAT_MACH_O))
 		return;
 
 	be_dwarf_variable(entity);

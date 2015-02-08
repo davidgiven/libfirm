@@ -32,6 +32,7 @@
 #include "heights.h"
 
 #include "bediagnostic.h"
+#include "begnuas.h"
 #include "benode.h"
 #include "besched.h"
 #include "betranshlp.h"
@@ -241,10 +242,8 @@ ir_node *ia32_get_pic_base(ir_graph *irg)
  */
 static ir_node *get_global_base(ir_graph *const irg)
 {
-	if (be_options.pic) {
+	if (ia32_pic_style != IA32_PIC_NONE)
 		return ia32_get_pic_base(irg);
-	}
-
 	return noreg_GP;
 }
 
@@ -298,7 +297,8 @@ static ir_type *get_prim_type(const ir_mode *mode)
 	}
 }
 
-static ir_entity *create_float_const_entity(ir_tarval *tv, ident *name)
+static ir_entity *create_float_const_entity(const be_main_env_t *env,
+											ir_tarval *tv, ident *name)
 {
 	ir_mode *mode = get_tarval_mode(tv);
 	if (!ia32_cg_config.use_sse2) {
@@ -329,6 +329,8 @@ static ir_entity *create_float_const_entity(ir_tarval *tv, ident *name)
 
 		ir_initializer_t *const initializer = create_initializer_tarval(tv);
 		set_entity_initializer(res, initializer);
+
+		res = ia32_lconst_pic_adjust(env, res);
 
 		pmap_insert(ia32_tv_ent, tv, res);
 	}
@@ -396,7 +398,9 @@ static ir_node *gen_Const(ir_node *node)
 					}
 				}
 #endif /* CONSTRUCT_SSE_CONST */
-				ir_entity *const floatent = create_float_const_entity(tv, NULL);
+				const be_main_env_t *env = be_get_irg_main_env(irg);
+				ir_entity *const floatent
+					= create_float_const_entity(env, tv, NULL);
 
 				ir_node *base = get_global_base(irg);
 				load = new_bd_ia32_xLoad(dbgi, block, base, noreg_GP, nomem,
@@ -415,7 +419,9 @@ static ir_node *gen_Const(ir_node *node)
 				load = new_bd_ia32_fld1(dbgi, block);
 				res  = load;
 			} else {
-				ir_entity *const floatent = create_float_const_entity(tv, NULL);
+				const be_main_env_t *env = be_get_irg_main_env(irg);
+				ir_entity *const floatent
+					= create_float_const_entity(env, tv, NULL);
 				/* create_float_const_ent is smart and sometimes creates
 				   smaller entities */
 				ir_mode *ls_mode  = get_type_mode(get_entity_type(floatent));
@@ -523,7 +529,8 @@ static ir_type *ia32_create_float_array(ir_type *tp)
 }
 
 /* Generates an entity for a known FP const (used for FP Neg + Abs) */
-ir_entity *ia32_gen_fp_known_const(ia32_known_const_t const kct)
+ir_entity *ia32_gen_fp_known_const(const be_main_env_t *const env,
+								   ia32_known_const_t const kct)
 {
 	static const struct {
 		const char *name;
@@ -569,7 +576,7 @@ ir_entity *ia32_gen_fp_known_const(ia32_known_const_t const kct)
 				create_initializer_tarval(tv));
 			set_entity_initializer(ent, initializer);
 		} else {
-			ent = create_float_const_entity(tv, name);
+			ent = create_float_const_entity(env, tv, name);
 		}
 		/* cache the entry */
 		ent_cache[kct] = ent;
@@ -796,9 +803,11 @@ static void build_address(ia32_address_mode_t *am, ir_node *node,
 
 	/* floating point immediates */
 	if (is_Const(node)) {
-		ir_graph  *const irg    = get_irn_irg(node);
-		ir_tarval *const tv     = get_Const_tarval(node);
-		ir_entity *const entity = create_float_const_entity(tv, NULL);
+		ir_graph            *const irg    = get_irn_irg(node);
+		ir_tarval           *const tv     = get_Const_tarval(node);
+		const be_main_env_t *const env    = be_get_irg_main_env(irg);
+		ir_entity           *const entity
+			= create_float_const_entity(env, tv, NULL);
 		addr->base        = get_global_base(irg);
 		addr->index       = noreg_GP;
 		addr->mem         = nomem;
@@ -2001,7 +2010,8 @@ static ir_node *gen_Minus(ir_node *node)
 			new_node = new_bd_ia32_xXor(dbgi, block, base, noreg_GP, nomem, new_op, noreg_xmm);
 
 			int        size = get_mode_size_bits(mode);
-			ir_entity *ent  = ia32_gen_fp_known_const(size == 32 ? ia32_SSIGN : ia32_DSIGN);
+			const be_main_env_t *env = be_get_irg_main_env(irg);
+			ir_entity *ent  = ia32_gen_fp_known_const(env, size == 32 ? ia32_SSIGN : ia32_DSIGN);
 
 			set_ia32_am_ent(new_node, ent);
 			set_ia32_op_type(new_node, ia32_AddrModeS);
@@ -2045,7 +2055,8 @@ static ir_node *create_float_abs(dbg_info *dbgi, ir_node *new_block, ir_node *op
 		new_node = new_bd_ia32_xAnd(dbgi, new_block, base, noreg_GP, nomem, new_op, noreg_fp);
 
 		int        size = get_mode_size_bits(mode);
-		ir_entity *ent  = ia32_gen_fp_known_const(size == 32 ? ia32_SABS : ia32_DABS);
+		const      be_main_env_t *env = be_get_irg_main_env(irg);
+		ir_entity *ent  = ia32_gen_fp_known_const(env, size == 32 ? ia32_SABS : ia32_DABS);
 
 		set_ia32_am_ent(new_node, ent);
 
@@ -4534,6 +4545,7 @@ static ir_node *gen_ia32_l_LLtoFloat(ir_node *node)
 
 	if (!mode_is_signed(get_irn_mode(val_high))) {
 		ir_node *const count = ia32_create_Immediate(irg, 31);
+		const be_main_env_t *env = be_get_irg_main_env(irg);
 
 		ia32_address_mode_t am;
 		am.addr.base         = get_global_base(irg);
@@ -4541,7 +4553,7 @@ static ir_node *gen_ia32_l_LLtoFloat(ir_node *node)
 		am.addr.mem          = nomem;
 		am.addr.offset       = 0;
 		am.addr.scale        = 2;
-		am.addr.entity       = ia32_gen_fp_known_const(ia32_ULLBIAS);
+		am.addr.entity       = ia32_gen_fp_known_const(env, ia32_ULLBIAS);
 		am.addr.tls_segment  = false;
 		am.addr.use_frame    = 0;
 		am.addr.frame_entity = NULL;
@@ -4903,7 +4915,7 @@ static ir_node *gen_Call(ir_node *node)
 
 	/* special case for PIC trampoline calls */
 	bool const old_no_pic_adjust = no_pic_adjust;
-	no_pic_adjust = be_options.pic;
+	no_pic_adjust = ia32_pic_style != IA32_PIC_NONE;
 
 	/* Construct arguments. */
 	ia32_address_mode_t am;
@@ -4917,7 +4929,8 @@ static ir_node *gen_Call(ir_node *node)
 	ir_graph                   *const irg      = get_irn_irg(node);
 	struct obstack             *const obst     = be_get_be_obst(irg);
 	unsigned                          in_arity = n_ia32_Call_first_argument;
-	unsigned                    const n_ins    = in_arity + cconv->n_param_regs;
+	unsigned                    const n_ins
+		= in_arity + cconv->n_param_regs + (ia32_pic_style == IA32_PIC_ELF_PLT);
 	ir_node                   **const in       = ALLOCAN(ir_node*, n_ins);
 	arch_register_req_t const **const in_req   = OALLOCNZ(obst, arch_register_req_t const*, n_ins);
 
@@ -4978,6 +4991,19 @@ static ir_node *gen_Call(ir_node *node)
 			ir_node *const store = create_store(dbgi, block, value, &store_addr);
 			set_irn_pinned(store, op_pin_state_floats);
 			sync_ins[sync_arity++] = create_proj_for_store(store, pn_Store_M);
+		}
+	}
+	/* PIC calls need the GOT address in ebx */
+	if (ia32_pic_style == IA32_PIC_ELF_PLT && is_ia32_Immediate(am.new_op2)) {
+		ir_entity *entity
+			= get_ia32_immediate_attr_const(am.new_op2)->entity;
+		be_main_env_t *be = be_get_irg_main_env(irg);
+		if (get_entity_owner(entity) == be->pic_trampolines_type) {
+			/* TODO, FIXME: This input leads to the call node not being
+			 * register pressure faithfull anymore, need a fix! */
+			unsigned goti = in_arity++;
+			in[goti]     = ia32_get_pic_base(irg);
+			in_req[goti] = ia32_registers[REG_EBX].single_req;
 		}
 	}
 	assert(in_arity == n_ins);

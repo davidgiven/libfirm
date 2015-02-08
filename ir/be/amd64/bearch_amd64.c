@@ -13,6 +13,7 @@
 #include "amd64_transform.h"
 #include "bearch_amd64_t.h"
 #include "beflags.h"
+#include "begnuas.h"
 #include "beirg.h"
 #include "bemodule.h"
 #include "besched.h"
@@ -769,6 +770,9 @@ static void amd64_init(void)
 	amd64_create_opcodes(&be_null_ops);
 	amd64_cconv_init();
 	x86_set_be_asm_constraint_support(&amd64_asm_constraints);
+
+	be_gas_elf_type_char = '@';
+	be_gas_got_suffix    = "@GOTPCREL";
 }
 
 static arch_isa_if_t const amd64_isa_if = {

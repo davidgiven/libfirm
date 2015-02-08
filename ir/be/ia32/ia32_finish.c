@@ -77,7 +77,8 @@ static void ia32_transform_sub_to_neg_add(ir_node *irn)
 
 		res = new_bd_ia32_xXor(dbgi, block, noreg, noreg, nomem, in2, noreg_fp);
 		int        size   = get_mode_size_bits(op_mode);
-		ir_entity *entity = ia32_gen_fp_known_const(size == 32 ? ia32_SSIGN : ia32_DSIGN);
+		const be_main_env_t *env = be_get_irg_main_env(irg);
+		ir_entity *entity = ia32_gen_fp_known_const(env, size == 32 ? ia32_SSIGN : ia32_DSIGN);
 		set_ia32_am_ent(res, entity);
 		set_ia32_op_type(res, ia32_AddrModeS);
 		set_ia32_ls_mode(res, op_mode);

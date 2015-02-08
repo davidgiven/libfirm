@@ -24,6 +24,13 @@
 
 #define IA32_REGISTER_SIZE 4
 
+typedef enum ia32_pic_style_t {
+	IA32_PIC_NONE,
+	IA32_PIC_MACH_O,
+	IA32_PIC_ELF_PLT,
+	IA32_PIC_ELF_NO_PLT,
+} ia32_pic_style_t;
+
 typedef struct ia32_irg_data_t {
 	unsigned do_x87_sim:1;    /**< set to 1 if x87 simulation should be enforced */
 	ir_node  *noreg_gp;       /**< unique NoReg_GP node */
@@ -45,6 +52,8 @@ extern ir_mode *ia32_mode_gp;
 extern ir_mode *ia32_mode_float64;
 extern ir_mode *ia32_mode_float32;
 extern ir_mode *ia32_mode_flags;
+
+extern ia32_pic_style_t ia32_pic_style;
 
 static inline ia32_irg_data_t *ia32_get_irg_data(const ir_graph *irg)
 {
@@ -92,6 +101,8 @@ ir_entity *ia32_get_frame_address_entity(ir_graph *irg);
  * adjusts address calculations for it.
  */
 void ia32_adjust_pic(ir_graph *irg);
+
+ir_entity *ia32_lconst_pic_adjust(const be_main_env_t *env, ir_entity *entity);
 
 ir_node *ia32_get_pic_base(ir_graph *irg);
 

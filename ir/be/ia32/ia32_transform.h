@@ -39,7 +39,8 @@ typedef enum {
 /**
  * Generate a known floating point constant
  */
-ir_entity *ia32_gen_fp_known_const(ia32_known_const_t kct);
+ir_entity *ia32_gen_fp_known_const(const be_main_env_t *env,
+								   ia32_known_const_t kct);
 
 /** Initialize the ia32 instruction selector. */
 void ia32_init_transform(void);
