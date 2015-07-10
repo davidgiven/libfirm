@@ -25,6 +25,7 @@
 #include "vc4_nodes_attr.h"
 #include "vc4_transform.h"
 #include "vc4_new_nodes.h"
+#include "vc4_cconv.h"
 
 #include "gen_vc4_regalloc_if.h"
 
@@ -34,6 +35,43 @@ typedef ir_node* (*new_binop_func)(dbg_info *dbgi, ir_node *block,
                                    ir_node *left, ir_node *right);
 
 static ir_mode *gp_regs_mode;
+static be_stackorder_t       *stackorder;
+static calling_convention_t  *cconv = NULL;
+static pmap                  *node_to_stack;
+static be_start_info_t        start_mem;
+static be_start_info_t        start_val[N_VC4_REGISTERS];
+static unsigned               start_callee_saves_offset;
+
+static const arch_register_t *const callee_saves[] = {
+	&vc4_registers[REG_R6],
+	&vc4_registers[REG_R7],
+	&vc4_registers[REG_R8],
+	&vc4_registers[REG_R9],
+	&vc4_registers[REG_R10],
+	&vc4_registers[REG_R11],
+	&vc4_registers[REG_R12],
+	&vc4_registers[REG_R14],
+	&vc4_registers[REG_R15],
+	&vc4_registers[REG_R16],
+	&vc4_registers[REG_R17],
+	&vc4_registers[REG_R18],
+	&vc4_registers[REG_R19],
+	&vc4_registers[REG_R20],
+	&vc4_registers[REG_R21],
+	&vc4_registers[REG_R22],
+	&vc4_registers[REG_R23],
+	&vc4_registers[REG_LR],
+};
+
+static const arch_register_t *const caller_saves[] = {
+	&vc4_registers[REG_R0],
+	&vc4_registers[REG_R1],
+	&vc4_registers[REG_R2],
+	&vc4_registers[REG_R3],
+	&vc4_registers[REG_R4],
+	&vc4_registers[REG_R5],
+	&vc4_registers[REG_LR],
+};
 
 /**
  * returns true if mode should be stored in a general purpose register
@@ -210,15 +248,101 @@ static ir_node *gen_Jmp(ir_node *node)
 	return new_bd_vc4_Jmp(dbgi, new_block);
 }
 
+/**
+ * Produces the type which sits between the stack args and the locals on the
+ * stack. It will contain the return address and space to store the old base
+ * pointer.
+ * @return The Firm type modeling the ABI between type.
+ */
+static ir_type *vc4_get_between_type(void)
+{
+	static ir_type *between_type = NULL;
+	if (between_type == NULL) {
+		between_type = new_type_class(new_id_from_str("vc4_between_type"));
+		set_type_size_bytes(between_type, 0);
+	}
+
+	return between_type;
+}
+
+static void create_stacklayout(ir_graph *irg)
+{
+	ir_entity         *entity        = get_irg_entity(irg);
+	ir_type           *function_type = get_entity_type(entity);
+	be_stack_layout_t *layout        = be_get_irg_stack_layout(irg);
+
+	/* calling conventions must be decided by now */
+	assert(cconv != NULL);
+
+	/* construct argument type */
+	ident   *const arg_type_id = new_id_fmt("%s_arg_type", get_entity_ident(entity));
+	ir_type *const arg_type    = new_type_struct(arg_type_id);
+	for (unsigned p = 0, n_params = get_method_n_params(function_type);
+	     p < n_params; ++p) {
+		reg_or_stackslot_t *param = &cconv->parameters[p];
+		if (param->type == NULL)
+			continue;
+
+		ident *const id = new_id_fmt("param_%u", p);
+		param->entity = new_entity(arg_type, id, param->type);
+		set_entity_offset(param->entity, param->offset);
+	}
+
+	/* TODO: what about external functions? we don't know most of the stack
+	 * layout for them. And probably don't need all of this... */
+	memset(layout, 0, sizeof(*layout));
+	layout->frame_type     = get_irg_frame_type(irg);
+	layout->between_type   = vc4_get_between_type();
+	layout->arg_type       = arg_type;
+	layout->initial_offset = 0;
+	layout->initial_bias   = 0;
+	layout->sp_relative    = true;
+
+	assert(N_FRAME_TYPES == 3);
+	layout->order[0] = layout->frame_type;
+	layout->order[1] = layout->between_type;
+	layout->order[2] = layout->arg_type;
+}
+
 static ir_node *gen_Start(ir_node *node)
 {
-	dbg_info *dbgi      = get_irn_dbg_info(node);
-	ir_node  *new_block = be_transform_nodes_block(node);
-	ir_node  *result    = new_bd_vc4_Start(dbgi, new_block);
-	/* we have to set ignore registers manually */
-	arch_set_irn_register_out(result, pn_vc4_Start_stack,
-	                          &vc4_registers[REG_SP]);
-	return result;
+	ir_graph       *irg           = get_irn_irg(node);
+	ir_entity      *entity        = get_irg_entity(irg);
+	ir_type        *function_type = get_entity_type(entity);
+	ir_node        *new_block     = be_transform_nodes_block(node);
+	dbg_info       *dbgi          = get_irn_dbg_info(node);
+
+	unsigned n_outs = 2; /* memory, sp */
+	n_outs += cconv->n_param_regs;
+	n_outs += ARRAY_SIZE(callee_saves);
+	ir_node *start = new_bd_vc4_Start(dbgi, new_block, n_outs);
+	unsigned o     = 0;
+
+	be_make_start_mem(&start_mem, start, o++);
+
+	be_make_start_out(&start_val[REG_SP], start, o++, &vc4_registers[REG_SP], true);
+
+	/* function parameters in registers */
+	for (size_t i = 0; i < get_method_n_params(function_type); ++i) {
+		const reg_or_stackslot_t *param = &cconv->parameters[i];
+		const arch_register_t    *reg0  = param->reg0;
+		if (reg0)
+			be_make_start_out(&start_val[reg0->global_index], start, o++, reg0, false);
+		const arch_register_t *reg1 = param->reg1;
+		if (reg1)
+			be_make_start_out(&start_val[reg1->global_index], start, o++, reg1, false);
+	}
+	/* callee save regs */
+	start_callee_saves_offset = o;
+	for (size_t i = 0; i < ARRAY_SIZE(callee_saves); ++i) {
+		const arch_register_t *reg = callee_saves[i];
+		arch_set_irn_register_req_out(start, o, reg->single_req);
+		arch_set_irn_register_out(start, o, reg);
+		++o;
+	}
+	assert(n_outs == o);
+
+	return start;
 }
 
 static ir_node *gen_Return(ir_node *node)
@@ -263,26 +387,87 @@ static ir_node *gen_Phi(ir_node *node)
 	return be_transform_phi(node, req);
 }
 
+static ir_node *gen_Proj_Proj_Start(ir_node *node)
+{
+	/* Proj->Proj->Start must be a method argument */
+	assert(get_Proj_num(get_Proj_pred(node)) == pn_Start_T_args);
+
+	ir_node                  *const new_block = be_transform_nodes_block(node);
+	ir_graph                 *const irg       = get_irn_irg(new_block);
+	unsigned                  const pn        = get_Proj_num(node);
+	reg_or_stackslot_t const *const param     = &cconv->parameters[pn];
+	arch_register_t    const *const reg0      = param->reg0;
+	if (reg0 != NULL) {
+		/* argument transmitted in register */
+		return be_get_start_proj(irg, &start_val[reg0->global_index]);
+	} else {
+		/* argument transmitted on stack */
+		ir_node *const fp   = get_irg_frame(irg);
+		ir_node *const mem  = be_get_start_proj(irg, &start_mem);
+		ir_mode *const mode = get_type_mode(param->type);
+
+		ir_node *load;
+		ir_node *value;
+
+		panic("stack arguments not supported yet");
+		#if 0
+		load  = new_bd_arm_Ldr(NULL, new_block, fp, mem, mode,
+							   param->entity, 0, 0, true);
+		value = new_r_Proj(load, arm_mode_gp, pn_arm_Ldr_res);
+
+		set_irn_pinned(load, op_pin_state_floats);
+		#endif
+
+		return value;
+	}
+}
+
+/**
+ * Finds number of output value of a mode_T node which is constrained to
+ * a single specific register.
+ */
+static int find_out_for_reg(ir_node *node, const arch_register_t *reg)
+{
+	be_foreach_out(node, o) {
+		const arch_register_req_t *req = arch_get_irn_register_req_out(node, o);
+		if (req == reg->single_req)
+			return o;
+	}
+	return -1;
+}
+
+static ir_node *gen_Proj_Proj_Call(ir_node *node)
+{
+	unsigned              pn            = get_Proj_num(node);
+	ir_node              *call          = get_Proj_pred(get_Proj_pred(node));
+	ir_node              *new_call      = be_transform_node(call);
+	ir_type              *function_type = get_Call_type(call);
+	calling_convention_t *cconv
+		= vc4_decide_calling_convention(NULL, function_type);
+	const reg_or_stackslot_t *res = &cconv->results[pn];
+
+	assert(res->reg0 != NULL && res->reg1 == NULL);
+	int regn = find_out_for_reg(new_call, res->reg0);
+	if (regn < 0) {
+		panic("Internal error in calling convention for return %+F", node);
+	}
+	ir_mode *const mode = res->reg0->cls->mode;
+
+	vc4_free_calling_convention(cconv);
+
+	return new_r_Proj(new_call, mode, regn);
+}
+
 static ir_node *gen_Proj_Proj(ir_node *node)
 {
 	ir_node *pred      = get_Proj_pred(node);
 	ir_node *pred_pred = get_Proj_pred(pred);
-	if (is_Start(pred_pred)) {
-		if (get_Proj_num(pred) == pn_Start_T_args) {
-			ir_node *new_start = be_transform_node(pred_pred);
-			// assume everything is passed in gp registers
-			unsigned arg_num = get_Proj_num(node);
-			if (arg_num >= 4)
-				panic("more than 4 arguments not supported");
-			static const unsigned pns[] = {
-				pn_vc4_Start_arg0, pn_vc4_Start_arg1,
-				pn_vc4_Start_arg2, pn_vc4_Start_arg3
-			};
-			assert(arg_num < ARRAY_SIZE(pns));
-			return new_r_Proj(new_start, gp_regs_mode, pns[arg_num]);
-		}
+	if (is_Call(pred_pred)) {
+		return gen_Proj_Proj_Call(node);
+	} else if (is_Start(pred_pred)) {
+		return gen_Proj_Proj_Start(node);
 	}
-	panic("No transformer for %+F -> %+F -> %+F", node, pred, pred_pred);
+	panic("code selection didn't expect Proj(Proj) after %+F", pred_pred);
 }
 
 static ir_node *gen_Proj_Load(ir_node *node)
@@ -324,11 +509,11 @@ static ir_node *gen_Proj_Start(ir_node *node)
 
 	switch ((pn_Start)pn) {
 	case pn_Start_M:
-		return new_rd_Proj(dbgi, new_start, mode_M, pn_vc4_Start_M);
+		return be_get_start_proj(get_irn_irg(node), &start_mem);
 	case pn_Start_T_args:
 		return new_r_Bad(get_irn_irg(node), mode_T);
 	case pn_Start_P_frame_base:
-		return new_rd_Proj(dbgi, new_start, gp_regs_mode, pn_vc4_Start_stack);
+		return be_get_start_proj(get_irn_irg(node), &start_val[REG_SP]);
 	}
 	panic("unexpected Start proj %u", pn);
 }
@@ -364,7 +549,9 @@ static void vc4_register_transformers(void)
 
 static const unsigned ignore_regs[] = {
 	REG_SP,
-	REG_BP,
+	REG_DP,
+	REG_ESP,
+	REG_SR
 };
 
 static void setup_calling_convention(ir_graph *irg)
@@ -392,9 +579,30 @@ void vc4_transform_graph(ir_graph *irg)
 
 	vc4_register_transformers();
 
-	setup_calling_convention(irg);
+	node_to_stack = pmap_create();
+
+	assert(cconv == NULL);
+	stackorder = be_collect_stacknodes(irg);
+	ir_entity *entity = get_irg_entity(irg);
+	cconv = vc4_decide_calling_convention(irg, get_entity_type(entity));
+	create_stacklayout(irg);
+	be_add_parameter_entity_stores(irg);
 
 	be_transform_graph(irg, NULL);
+
+	be_free_stackorder(stackorder);
+	stackorder = NULL;
+
+	vc4_free_calling_convention(cconv);
+	cconv = NULL;
+
+	ir_type *frame_type = get_irg_frame_type(irg);
+	if (get_type_state(frame_type) == layout_undefined) {
+		default_layout_compound_type(frame_type);
+	}
+
+	pmap_destroy(node_to_stack);
+	node_to_stack = NULL;
 }
 
 void vc4_init_transform(void)

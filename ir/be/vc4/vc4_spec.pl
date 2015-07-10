@@ -5,7 +5,6 @@ $arch = "vc4";
 # Modes
 #
 $mode_gp  = "mode_Iu"; # mode used by general purpose registers
-$mode_fp  = "mode_F";  # mode used by floatingpoint registers
 
 # The node description is done as a perl hash initializer with the
 # following structure:
@@ -57,29 +56,25 @@ $mode_fp  = "mode_F";  # mode used by floatingpoint registers
 		{ name => "r11" },
 		{ name => "r12" },
 		{ name => "r13" },
-		{ name => "sp"  }, # stackpointer
-		{ name => "bp"  }, # basepointer
+		{ name => "r14" },
+		{ name => "r15" },
+		{ name => "r16" },
+		{ name => "r17" },
+		{ name => "r18" },
+		{ name => "r19" },
+		{ name => "r20" },
+		{ name => "r21" },
+		{ name => "r22" },
+		{ name => "r23" },
+		{ name => "dp" },  # data pointer
+		{ name => "sp"  }, # stack pointer
+		{ name => "lr"  }, # link register
+		{ name => "r27" },
+		{ name => "esp" }, # exception/interrupt stack pointer
+		{ name => "r29" },
+		{ name => "sr" },  # status register
 		{ mode => $mode_gp }
 	],
-	fp => [
-		{ name => "f0" },
-		{ name => "f1" },
-		{ name => "f2" },
-		{ name => "f3" },
-		{ name => "f4" },
-		{ name => "f5" },
-		{ name => "f6" },
-		{ name => "f7" },
-		{ name => "f8" },
-		{ name => "f9" },
-		{ name => "f10" },
-		{ name => "f11" },
-		{ name => "f12" },
-		{ name => "f13" },
-		{ name => "f14" },
-		{ name => "f15" },
-		{ mode => $mode_fp }
-	]
 );
 
 $default_attr_type = "vc4_attr_t";
@@ -97,12 +92,6 @@ my $constop = {
 	irn_flags  => [ "rematerializable" ],
 	out_reqs   => [ "gp" ],
 	mode       => $mode_gp,
-};
-
-my $fbinop = {
-	in_reqs   => [ "fp", "fp" ],
-	out_reqs  => [ "fp" ],
-	mode      => $mode_fp,
 };
 
 my $unop = {
@@ -193,9 +182,9 @@ Jmp => {
 Start => {
 	irn_flags => [ "schedule_first" ],
 	state     => "pinned",
-	out_reqs  => [ "sp:I", "r0", "r1", "r2", "r3", "none" ],
-	outs      => [ "stack", "arg0", "arg1", "arg2", "arg3", "M" ],
+	out_reqs  => "...",
 	ins       => [],
+	emit      => "",
 },
 
 Return => {
@@ -236,41 +225,41 @@ Store => {
 # Floating Point operations
 
 fAdd => {
-	template  => $fbinop,
+	template  => $binop,
 	irn_flags => [ "rematerializable" ],
 	emit      => '%D0 = fadd %S0, %S1',
 },
 
 fMul => {
-	template => $fbinop,
+	template => $binop,
 	emit     => '%D0 = fmul %S0, %S1',
 },
 
 fSub => {
-	template  => $fbinop,
+	template  => $binop,
 	irn_flags => [ "rematerializable" ],
 	emit      => '%D0 = fsub %S0, %S1',
 },
 
 fDiv => {
-	template => $fbinop,
+	template => $binop,
 	emit     => '%D0 = fdiv %S0, %S1',
 },
 
 fMinus => {
 	irn_flags => [ "rematerializable" ],
-	in_reqs   => [ "fp" ],
-	out_reqs  => [ "fp" ],
+	in_reqs   => [ "gp" ],
+	out_reqs  => [ "gp" ],
 	emit      => '%D0 = fneg %S0',
-	mode      => $mode_fp,
+	mode      => $mode_gp,
 },
 
 fConst => {
 	op_flags  => [ "constlike" ],
 	irn_flags => [ "rematerializable" ],
-	out_reqs  => [ "fp" ],
+	out_reqs  => [ "gp" ],
 	emit      => '%D0 = fconst %I',
-	mode      => $mode_fp,
+	mode      => $mode_gp,
 },
 
 # Load / Store
@@ -280,7 +269,7 @@ fLoad => {
 	irn_flags => [ "rematerializable" ],
 	state     => "exc_pinned",
 	in_reqs   => [ "none", "gp" ],
-	out_reqs  => [ "fp", "none" ],
+	out_reqs  => [ "gp", "none" ],
 	ins       => [ "mem", "ptr" ],
 	outs      => [ "res", "M" ],
 	emit      => '%D0 = fload (%S1)',
@@ -290,7 +279,7 @@ fStore => {
 	op_flags  => [ "uses_memory" ],
 	irn_flags => [ "rematerializable" ],
 	state     => "exc_pinned",
-	in_reqs   => [ "none", "gp", "fp" ],
+	in_reqs   => [ "none", "gp", "gp" ],
 	out_reqs  => [ "none" ],
 	ins       => [ "mem", "ptr", "val" ],
 	outs      => [ "M" ],
