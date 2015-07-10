@@ -1,12 +1,12 @@
 /*
  * This file is part of libFirm.
- * Copyright (C) 2012 University of Karlsruhe.
+ * Copyright (C) 2015 David Given.
  */
 
 /**
  * @file
  * @brief   This file implements the creation of the achitecture specific firm
- *          opcodes and the coresponding node constructors for the TEMPLATE
+ *          opcodes and the coresponding node constructors for the vc4
  *          assembler irg.
  */
 #include <stdlib.h>
@@ -24,17 +24,17 @@
 #include "bearch.h"
 #include "bedump.h"
 
-#include "TEMPLATE_nodes_attr.h"
-#include "TEMPLATE_new_nodes.h"
-#include "gen_TEMPLATE_regalloc_if.h"
+#include "vc4_nodes_attr.h"
+#include "vc4_new_nodes.h"
+#include "gen_vc4_regalloc_if.h"
 
 /**
- * Dumper interface for dumping TEMPLATE nodes in vcg.
+ * Dumper interface for dumping vc4 nodes in vcg.
  * @param F        the output file
  * @param n        the node to dump
  * @param reason   indicates which kind of information should be dumped
  */
-static void TEMPLATE_dump_node(FILE *F, const ir_node *n, dump_reason_t reason)
+static void vc4_dump_node(FILE *F, const ir_node *n, dump_reason_t reason)
 {
 	switch (reason) {
 	case dump_node_opcode_txt:
@@ -58,39 +58,39 @@ static void TEMPLATE_dump_node(FILE *F, const ir_node *n, dump_reason_t reason)
 	}
 }
 
-const TEMPLATE_attr_t *get_TEMPLATE_attr_const(const ir_node *node)
+const vc4_attr_t *get_vc4_attr_const(const ir_node *node)
 {
-	assert(is_TEMPLATE_irn(node) && "need TEMPLATE node to get attributes");
-	return (const TEMPLATE_attr_t *)get_irn_generic_attr_const(node);
+	assert(is_vc4_irn(node) && "need vc4 node to get attributes");
+	return (const vc4_attr_t *)get_irn_generic_attr_const(node);
 }
 
-TEMPLATE_attr_t *get_TEMPLATE_attr(ir_node *node)
+vc4_attr_t *get_vc4_attr(ir_node *node)
 {
-	assert(is_TEMPLATE_irn(node) && "need TEMPLATE node to get attributes");
-	return (TEMPLATE_attr_t *)get_irn_generic_attr(node);
+	assert(is_vc4_irn(node) && "need vc4 node to get attributes");
+	return (vc4_attr_t *)get_irn_generic_attr(node);
 }
 
-static void set_TEMPLATE_value(ir_node *node, ir_tarval *value)
+static void set_vc4_value(ir_node *node, ir_tarval *value)
 {
-	TEMPLATE_attr_t *attr = get_TEMPLATE_attr(node);
+	vc4_attr_t *attr = get_vc4_attr(node);
 	attr->value = value;
 }
 
-static void set_TEMPLATE_entity(ir_node *node, ir_entity *entity)
+static void set_vc4_entity(ir_node *node, ir_entity *entity)
 {
-	TEMPLATE_attr_t *attr = get_TEMPLATE_attr(node);
+	vc4_attr_t *attr = get_vc4_attr(node);
 	attr->entity = entity;
 }
 
-static int TEMPLATE_attrs_equal(const ir_node *a, const ir_node *b)
+static int vc4_attrs_equal(const ir_node *a, const ir_node *b)
 {
-	const TEMPLATE_attr_t *attr_a = get_TEMPLATE_attr_const(a);
-	const TEMPLATE_attr_t *attr_b = get_TEMPLATE_attr_const(b);
+	const vc4_attr_t *attr_a = get_vc4_attr_const(a);
+	const vc4_attr_t *attr_b = get_vc4_attr_const(b);
 	return attr_a->value == attr_b->value
 	    && attr_a->entity == attr_b->entity;
 }
 
-static void TEMPLATE_copy_attr(ir_graph *irg, const ir_node *old_node,
+static void vc4_copy_attr(ir_graph *irg, const ir_node *old_node,
                                ir_node *new_node)
 {
 	struct obstack *obst    = get_irg_obstack(irg);
@@ -110,4 +110,4 @@ static void TEMPLATE_copy_attr(ir_graph *irg, const ir_node *old_node,
 }
 
 /* Include the generated constructor functions */
-#include "gen_TEMPLATE_new_nodes.c.inl"
+#include "gen_vc4_new_nodes.c.inl"

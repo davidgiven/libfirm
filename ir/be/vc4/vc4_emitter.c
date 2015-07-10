@@ -1,32 +1,32 @@
 /*
  * This file is part of libFirm.
- * Copyright (C) 2012 University of Karlsruhe.
+ * Copyright (C) 2015 David Given.
  */
 
 /**
  * @file
  * @brief   emit assembler for a backend graph
  */
-#include "TEMPLATE_emitter.h"
-#include "TEMPLATE_new_nodes.h"
+#include "vc4_emitter.h"
+#include "vc4_new_nodes.h"
 #include "beblocksched.h"
 #include "begnuas.h"
 #include "benode.h"
 #include "besched.h"
-#include "gen_TEMPLATE_emitter.h"
+#include "gen_vc4_emitter.h"
 #include "irgwalk.h"
 #include "panic.h"
 #include "util.h"
 
-static void TEMPLATE_emit_immediate(const ir_node *node)
+static void vc4_emit_immediate(const ir_node *node)
 {
-	const TEMPLATE_attr_t *attr = get_TEMPLATE_attr_const(node);
+	const vc4_attr_t *attr = get_vc4_attr_const(node);
 	be_emit_irprintf("%T", attr->value);
 }
 
-static void TEMPLATE_emit_entity(const ir_node *node)
+static void vc4_emit_entity(const ir_node *node)
 {
-	const TEMPLATE_attr_t *attr = get_TEMPLATE_attr_const(node);
+	const vc4_attr_t *attr = get_vc4_attr_const(node);
 	be_emit_irprintf("%s", get_entity_ld_name(attr->entity));
 }
 
@@ -35,13 +35,13 @@ static void emit_register(const arch_register_t *reg)
 	be_emit_string(reg->name);
 }
 
-static void TEMPLATE_emit_source_register(const ir_node *node, int pos)
+static void vc4_emit_source_register(const ir_node *node, int pos)
 {
 	const arch_register_t *reg = arch_get_irn_register_in(node, pos);
 	emit_register(reg);
 }
 
-static void TEMPLATE_emit_dest_register(const ir_node *node, int pos)
+static void vc4_emit_dest_register(const ir_node *node, int pos)
 {
 	const arch_register_t *reg = arch_get_irn_register_out(node, pos);
 	emit_register(reg);
@@ -50,13 +50,13 @@ static void TEMPLATE_emit_dest_register(const ir_node *node, int pos)
 /**
  * Returns the target label for a control flow node.
  */
-static void TEMPLATE_emit_cfop_target(const ir_node *node)
+static void vc4_emit_cfop_target(const ir_node *node)
 {
 	ir_node *block = (ir_node*)get_irn_link(node);
 	be_gas_emit_block_name(block);
 }
 
-void TEMPLATE_emitf(const ir_node *node, const char *format, ...)
+void vc4_emitf(const ir_node *node, const char *format, ...)
 {
 	va_list ap;
 	va_start(ap, format);
@@ -79,7 +79,7 @@ void TEMPLATE_emitf(const ir_node *node, const char *format, ...)
 			if (!is_digit(*format))
 				goto unknown;
 			unsigned const pos = *format++ - '0';
-			TEMPLATE_emit_source_register(node, pos);
+			vc4_emit_source_register(node, pos);
 			break;
 		}
 
@@ -87,16 +87,16 @@ void TEMPLATE_emitf(const ir_node *node, const char *format, ...)
 			if (!is_digit(*format))
 				goto unknown;
 			unsigned const pos = *format++ - '0';
-			TEMPLATE_emit_dest_register(node, pos);
+			vc4_emit_dest_register(node, pos);
 			break;
 		}
 
 		case 'E':
-			TEMPLATE_emit_entity(node);
+			vc4_emit_entity(node);
 			break;
 
 		case 'I':
-			TEMPLATE_emit_immediate(node);
+			vc4_emit_immediate(node);
 			break;
 
 		case 'X': {
@@ -124,7 +124,7 @@ void TEMPLATE_emitf(const ir_node *node, const char *format, ...)
 		}
 
 		case 'L': {
-			TEMPLATE_emit_cfop_target(node);
+			vc4_emit_cfop_target(node);
 			break;
 		}
 
@@ -147,9 +147,9 @@ unknown:
 /**
  * Emits code for a unconditional jump.
  */
-static void emit_TEMPLATE_Jmp(const ir_node *node)
+static void emit_vc4_Jmp(const ir_node *node)
 {
-	TEMPLATE_emitf(node, "jmp %L");
+	vc4_emitf(node, "jmp %L");
 }
 
 static void emit_be_IncSP(const ir_node *node)
@@ -165,7 +165,7 @@ static void emit_be_IncSP(const ir_node *node)
 		offset = -offset;
 	}
 
-	TEMPLATE_emitf(node, "%s %S0, %d, %D0", op, offset);
+	vc4_emitf(node, "%s %S0, %d, %D0", op, offset);
 }
 
 static void emit_Start(const ir_node *node)
@@ -178,7 +178,7 @@ static void emit_Start(const ir_node *node)
 
 	/* allocate stackframe */
 	if (size > 0) {
-		TEMPLATE_emitf(node, "sub %%sp, %u, %%sp", size);
+		vc4_emitf(node, "sub %%sp, %u, %%sp", size);
 	}
 }
 
@@ -192,33 +192,33 @@ static void emit_Return(const ir_node *node)
 
 	/* deallocate stackframe */
 	if (size > 0) {
-		TEMPLATE_emitf(node, "add %%sp, %u, %%sp", size);
+		vc4_emitf(node, "add %%sp, %u, %%sp", size);
 	}
 
 	/* return */
-	unsigned    const n_res = get_irn_arity(node) - n_TEMPLATE_Return_first_result;
+	unsigned    const n_res = get_irn_arity(node) - n_vc4_Return_first_result;
 	char const *const fmt   =
 		n_res == 0 ? "ret" :
 		n_res == 1 ? "ret %S2" :
 		"ret %S2, ...";
-	TEMPLATE_emitf(node, fmt);
+	vc4_emitf(node, fmt);
 }
 
 /**
  * Enters the emitter functions for handled nodes into the generic
  * pointer of an opcode.
  */
-static void TEMPLATE_register_emitters(void)
+static void vc4_register_emitters(void)
 {
 	be_init_emitters();
 
 	/* register all emitter functions defined in spec */
-	TEMPLATE_register_spec_emitters();
+	vc4_register_spec_emitters();
 
 	/* custom emitters not provided by the spec */
-	be_set_emitter(op_TEMPLATE_Jmp,    emit_TEMPLATE_Jmp);
-	be_set_emitter(op_TEMPLATE_Return, emit_Return);
-	be_set_emitter(op_TEMPLATE_Start,  emit_Start);
+	be_set_emitter(op_vc4_Jmp,    emit_vc4_Jmp);
+	be_set_emitter(op_vc4_Return, emit_Return);
+	be_set_emitter(op_vc4_Start,  emit_Start);
 	be_set_emitter(op_be_IncSP,        emit_be_IncSP);
 }
 
@@ -226,7 +226,7 @@ static void TEMPLATE_register_emitters(void)
  * Walks over the nodes in a block connected by scheduling edges
  * and emits code for each node.
  */
-static void TEMPLATE_emit_block(ir_node *block)
+static void vc4_emit_block(ir_node *block)
 {
 	be_gas_begin_block(block, true);
 
@@ -238,7 +238,7 @@ static void TEMPLATE_emit_block(ir_node *block)
 /**
  * Sets labels for control flow nodes (jump target)
  */
-static void TEMPLATE_gen_labels(ir_node *block, void *env)
+static void vc4_gen_labels(ir_node *block, void *env)
 {
 	(void)env;
 	for (int n = get_Block_n_cfgpreds(block); n-- > 0; ) {
@@ -247,10 +247,10 @@ static void TEMPLATE_gen_labels(ir_node *block, void *env)
 	}
 }
 
-void TEMPLATE_emit_function(ir_graph *irg)
+void vc4_emit_function(ir_graph *irg)
 {
 	/* register all emitter functions */
-	TEMPLATE_register_emitters();
+	vc4_register_emitters();
 
 	/* create the block schedule */
 	ir_node **block_schedule = be_create_block_schedule(irg);
@@ -260,11 +260,11 @@ void TEMPLATE_emit_function(ir_graph *irg)
 	be_gas_emit_function_prolog(entity, 4, NULL);
 
 	/* populate jump link fields with their destinations */
-	irg_block_walk_graph(irg, TEMPLATE_gen_labels, NULL, NULL);
+	irg_block_walk_graph(irg, vc4_gen_labels, NULL, NULL);
 
 	for (size_t i = 0, n = ARR_LEN(block_schedule); i < n; ++i) {
 		ir_node *block = block_schedule[i];
-		TEMPLATE_emit_block(block);
+		vc4_emit_block(block);
 	}
 	be_gas_emit_function_epilog(entity);
 }

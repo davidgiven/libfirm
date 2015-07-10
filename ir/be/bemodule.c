@@ -29,6 +29,7 @@ void be_init_arch_amd64(void);
 void be_init_arch_arm(void);
 void be_init_arch_ia32(void);
 void be_init_arch_sparc(void);
+void be_init_arch_vc4(void);
 void be_init_blocksched(void);
 void be_init_chordal(void);
 void be_init_chordal_common(void);
@@ -97,6 +98,7 @@ void be_init_modules(void)
 	be_init_arch_arm();
 	be_init_arch_sparc();
 	be_init_arch_amd64();
+	be_init_arch_vc4();
 	be_init_arch_TEMPLATE();
 
 	be_init_listsched();

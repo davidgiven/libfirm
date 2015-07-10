@@ -1,5 +1,5 @@
 # the cpu architecture (ia32, ia64, mips, sparc, ppc, ...)
-$arch = "TEMPLATE";
+$arch = "vc4";
 
 #
 # Modes
@@ -82,8 +82,8 @@ $mode_fp  = "mode_F";  # mode used by floatingpoint registers
 	]
 );
 
-$default_attr_type = "TEMPLATE_attr_t";
-$default_copy_attr = "TEMPLATE_copy_attr";
+$default_attr_type = "vc4_attr_t";
+$default_copy_attr = "vc4_copy_attr";
 
 my $binop = {
 	irn_flags => [ "rematerializable" ],
@@ -169,14 +169,14 @@ Not => {
 Const => {
 	template   => $constop,
 	attr       => "ir_tarval *value",
-	custominit => "set_TEMPLATE_value(res, value);",
+	custominit => "set_vc4_value(res, value);",
 	emit       => '%D0 = const %I',
 },
 
 Address => {
 	template   => $constop,
 	attr       => "ir_entity *entity",
-	custominit => "set_TEMPLATE_entity(res, entity);",
+	custominit => "set_vc4_entity(res, entity);",
 	emit       => '%D0 = address of %E',
 },
 

@@ -1,14 +1,14 @@
 /*
  * This file is part of libFirm.
- * Copyright (C) 2012 University of Karlsruhe.
+ * Copyright (C) 2015 David Given.
  */
 
 /**
  * @file
  * @brief    declarations for emit functions
  */
-#ifndef FIRM_BE_TEMPLATE_TEMPLATE_EMITTER_H
-#define FIRM_BE_TEMPLATE_TEMPLATE_EMITTER_H
+#ifndef FIRM_BE_VC4_VC4_EMITTER_H
+#define FIRM_BE_VC4_VC4_EMITTER_H
 
 #include "firm_types.h"
 
@@ -27,8 +27,8 @@
  * %I   <node>                  immediate
  * %L   <node>                  target label
  */
-void TEMPLATE_emitf(const ir_node *node, const char *format, ...);
+void vc4_emitf(const ir_node *node, const char *format, ...);
 
-void TEMPLATE_emit_function(ir_graph *irg);
+void vc4_emit_function(ir_graph *irg);
 
 #endif
