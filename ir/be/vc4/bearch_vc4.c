@@ -21,6 +21,7 @@
 #include "lower_builtins.h"
 #include "lower_calls.h"
 #include "panic.h"
+#include "bearch_vc4_t.h"
 
 DEBUG_ONLY(static firm_dbg_module_t *dbg = NULL;)
 

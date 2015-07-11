@@ -166,7 +166,7 @@ Address => {
 	template   => $constop,
 	attr       => "ir_entity *entity",
 	custominit => "set_vc4_entity(res, entity);",
-	emit       => '%D0 = address of %E',
+	emit       => 'lea %D0, %E',
 },
 
 # Control Flow
@@ -197,6 +197,15 @@ Return => {
 	mode     => "mode_X",
 },
 
+Bl => {
+	state     => "exc_pinned",
+	irn_flags => [ "modify_flags" ],
+	in_reqs   => "...",
+	out_reqs  => "...",
+	outs      => [ "M", "stack", "first_result" ],
+	emit      => "bl %Si"
+},
+
 # Load / Store
 
 Load => {
@@ -217,7 +226,7 @@ Ld => {
 	outs      => [ "res", "M" ],
 	in_reqs   => [ "gp", "none" ],
 	out_reqs  => [ "gp", "none" ],
-	emit      => 'ld %D0, %o(%S0)',
+	emit      => 'ld %D0, %c(%S0)',
 },
 
 Store => {
@@ -230,6 +239,17 @@ Store => {
 	outs      => [ "M" ],
 	mode      => "mode_M",
 	emit      => '(%S1) = store %S2',
+},
+
+St => {
+	op_flags  => [ "uses_memory" ],
+	state     => "exc_pinned",
+	ins       => [ "ptr", "val", "mem" ],
+	outs      => [ "M" ],
+	mode      => "mode_M",
+	in_reqs   => [ "gp", "gp", "none" ],
+	out_reqs  => [ "none" ],
+	emit      => 'st %S1, %c(%S0)',
 },
 
 # Floating Point operations

@@ -47,6 +47,12 @@ static void vc4_emit_dest_register(const ir_node *node, int pos)
 	emit_register(reg);
 }
 
+static void vc4_emit_constant(const ir_node *node)
+{
+	const vc4_attr_t *attr = get_vc4_attr_const(node);
+	be_emit_irprintf("0x%x", attr->constant);
+}
+
 /**
  * Returns the target label for a control flow node.
  */
@@ -55,13 +61,6 @@ static void vc4_emit_cfop_target(const ir_node *node)
 	ir_node *block = (ir_node*)get_irn_link(node);
 	be_gas_emit_block_name(block);
 }
-
-static void vc4_emit_offset(const ir_node *node)
-{
-	const vc4_attr_t *attr = get_vc4_attr_const(node);
-	be_emit_irprintf("0x%X", attr->offset);
-}
-
 
 void vc4_emitf(const ir_node *node, const char *format, ...)
 {
@@ -83,9 +82,16 @@ void vc4_emitf(const ir_node *node, const char *format, ...)
 			break;
 
 		case 'S': {
-			if (!is_digit(*format))
+			unsigned pos;
+			if (*format == 'i') {
+				const vc4_attr_t *attr = get_vc4_attr_const(node);
+				pos = attr->which_register;
+				format++;
+			} else if (is_digit(*format))
+				pos = *format++ - '0';
+			else
 				goto unknown;
-			unsigned const pos = *format++ - '0';
+
 			vc4_emit_source_register(node, pos);
 			break;
 		}
@@ -135,9 +141,10 @@ void vc4_emitf(const ir_node *node, const char *format, ...)
 			break;
 		}
 
-		case 'o':
-			vc4_emit_offset(node);
+		case 'c': {
+			vc4_emit_constant(node);
 			break;
+		}
 
 		case '\n':
 			be_emit_char('\n');
@@ -161,6 +168,18 @@ unknown:
 static void emit_vc4_Jmp(const ir_node *node)
 {
 	vc4_emitf(node, "jmp %L");
+}
+
+static void emit_be_Copy(const ir_node *irn)
+{
+	arch_register_t const *const out = arch_get_irn_register_out(irn, 0);
+	if (arch_get_irn_register_in(irn, 0) == out) {
+		/* omitted Copy */
+		return;
+	}
+
+	arch_register_class_t const *const cls = out->cls;
+	vc4_emitf(irn, "mov %D0, %S0");
 }
 
 static void emit_be_IncSP(const ir_node *node)
@@ -227,10 +246,12 @@ static void vc4_register_emitters(void)
 	vc4_register_spec_emitters();
 
 	/* custom emitters not provided by the spec */
-	be_set_emitter(op_vc4_Jmp,    emit_vc4_Jmp);
-	be_set_emitter(op_vc4_Return, emit_Return);
-	be_set_emitter(op_vc4_Start,  emit_Start);
-	be_set_emitter(op_be_IncSP,        emit_be_IncSP);
+	be_set_emitter(op_be_Copy,       emit_be_Copy);
+	be_set_emitter(op_be_CopyKeep,   emit_be_Copy);
+	be_set_emitter(op_be_IncSP,      emit_be_IncSP);
+	be_set_emitter(op_vc4_Jmp,       emit_vc4_Jmp);
+	be_set_emitter(op_vc4_Return,    emit_Return);
+	be_set_emitter(op_vc4_Start,     emit_Start);
 }
 
 /**

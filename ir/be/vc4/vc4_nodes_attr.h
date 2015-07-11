@@ -21,7 +21,8 @@ struct vc4_attr_t
 	ir_entity *entity;
 	ir_mode *entity_mode;
 	unsigned is_frame_entity : 1;
-	long offset;
+	long constant;
+	int which_register;
 };
 
 #endif

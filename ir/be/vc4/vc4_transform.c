@@ -32,9 +32,12 @@
 
 DEBUG_ONLY(static firm_dbg_module_t *dbg = NULL;)
 
+#define VC4_PO2_STACK_ALIGNMENT 2
+
 typedef ir_node* (*new_binop_func)(dbg_info *dbgi, ir_node *block,
                                    ir_node *left, ir_node *right);
 
+static const arch_register_t *sp_reg = &vc4_registers[REG_SP];
 static ir_mode *gp_regs_mode;
 static be_stackorder_t       *stackorder;
 static calling_convention_t  *cconv = NULL;
@@ -346,6 +349,26 @@ static ir_node *gen_Start(ir_node *node)
 	return start;
 }
 
+static ir_node *get_stack_pointer_for(ir_node *node)
+{
+	/* get predecessor in stack_order list */
+	ir_node *stack_pred = be_get_stack_pred(stackorder, node);
+	if (stack_pred == NULL) {
+		/* first stack user in the current block. We can simply use the
+		 * initial sp_proj for it */
+		ir_graph *irg = get_irn_irg(node);
+		return be_get_start_proj(irg, &start_val[REG_SP]);
+	}
+
+	be_transform_node(stack_pred);
+	ir_node *stack = pmap_get(ir_node, node_to_stack, stack_pred);
+	if (stack == NULL) {
+		return get_stack_pointer_for(stack_pred);
+	}
+
+	return stack;
+}
+
 static ir_node *gen_Return(ir_node *node)
 {
 	int                               p     = n_vc4_Return_first_result;
@@ -373,6 +396,135 @@ static ir_node *gen_Return(ir_node *node)
 	arch_set_irn_register_reqs_in(ret, reqs);
 
 	return ret;
+}
+
+static ir_node *gen_Call(ir_node *node)
+{
+	ir_graph             *irg          = get_irn_irg(node);
+	ir_node              *callee       = get_Call_ptr(node);
+	ir_node              *new_block    = be_transform_nodes_block(node);
+	ir_node              *mem          = get_Call_mem(node);
+	ir_node              *new_mem      = be_transform_node(mem);
+	dbg_info             *dbgi         = get_irn_dbg_info(node);
+	ir_type              *type         = get_Call_type(node);
+	calling_convention_t *cconv        = vc4_decide_calling_convention(NULL, type);
+	size_t                n_params     = get_Call_n_params(node);
+	size_t const          n_param_regs = cconv->n_param_regs;
+	/* max inputs: memory, stack, callee, register arguments */
+	size_t const          max_inputs   = 3 + n_param_regs;
+	ir_node             **in           = ALLOCAN(ir_node*, max_inputs);
+	ir_node             **sync_ins     = ALLOCAN(ir_node*, n_params);
+	arch_register_req_t const **const in_req = be_allocate_in_reqs(irg, max_inputs);
+	size_t                in_arity       = 0;
+	size_t                sync_arity     = 0;
+	size_t const          n_caller_saves = ARRAY_SIZE(caller_saves);
+	ir_entity            *entity         = NULL;
+
+	assert(n_params == get_method_n_params(type));
+
+	/* memory input */
+	int mem_pos     = in_arity++;
+	in_req[mem_pos] = arch_no_register_req;
+	/* stack pointer (create parameter stackframe + align stack)
+	 * Note that we always need an IncSP to ensure stack alignment */
+	ir_node *new_frame = get_stack_pointer_for(node);
+	ir_node *incsp     = be_new_IncSP(sp_reg, new_block, new_frame,
+	                                  cconv->param_stack_size,
+	                                  VC4_PO2_STACK_ALIGNMENT);
+	int sp_pos = in_arity++;
+	in_req[sp_pos] = sp_reg->single_req;
+	in[sp_pos]     = incsp;
+
+	/* parameters */
+	for (size_t p = 0; p < n_params; ++p) {
+		ir_node                  *value      = get_Call_param(node, p);
+		ir_node                  *new_value  = be_transform_node(value);
+		ir_node                  *new_value1 = NULL;
+		const reg_or_stackslot_t *param      = &cconv->parameters[p];
+		ir_type                  *param_type = get_method_param_type(type, p);
+		ir_mode                  *mode       = get_type_mode(param_type);
+
+		/* put value into registers */
+		if (param->reg0 != NULL) {
+			in[in_arity]     = new_value;
+			in_req[in_arity] = param->reg0->single_req;
+			++in_arity;
+			if (new_value1 == NULL)
+				continue;
+		}
+		if (param->reg1 != NULL) {
+			assert(new_value1 != NULL);
+			in[in_arity]     = new_value1;
+			in_req[in_arity] = param->reg1->single_req;
+			++in_arity;
+			continue;
+		}
+
+		/* we need a store if we're here */
+		if (new_value1 != NULL) {
+			new_value = new_value1;
+			mode      = mode_Iu;
+		}
+
+		/* create a parameter frame if necessary */
+		ir_node *str;
+		str = new_bd_vc4_St(dbgi, new_block, incsp, new_value, new_mem);
+		vc4_attr_t *attrs = get_vc4_attr(str);
+		attrs->is_frame_entity = false;
+		attrs->constant = param->offset;
+		sync_ins[sync_arity++] = str;
+	}
+
+	/* construct memory input */
+	if (sync_arity == 0) {
+		in[mem_pos] = new_mem;
+	} else if (sync_arity == 1) {
+		in[mem_pos] = sync_ins[0];
+	} else {
+		in[mem_pos] = new_r_Sync(new_block, sync_arity, sync_ins);
+	}
+
+	/* Count outputs. */
+	unsigned const out_arity = pn_vc4_Bl_first_result + n_caller_saves;
+
+	/* Call via register. Add the register to the set of inputs and tell
+	 * the node which one it is. */
+	unsigned target_register = in_arity;
+
+	in[in_arity]     = be_transform_node(callee);
+	in_req[in_arity] = vc4_reg_classes[CLASS_vc4_gp].class_req;
+	++in_arity;
+
+	ir_node *res = new_bd_vc4_Bl(dbgi, new_block, in_arity, in, out_arity);
+	vc4_attr_t *attrs = get_vc4_attr(res);
+	attrs->which_register = target_register;
+
+	arch_set_irn_register_reqs_in(res, in_req);
+
+	/* create output register reqs */
+	arch_set_irn_register_req_out(res, pn_vc4_Bl_M, arch_no_register_req);
+	arch_copy_irn_out_info(res, pn_vc4_Bl_stack, incsp);
+
+	for (size_t o = 0; o < n_caller_saves; ++o) {
+		const arch_register_t *reg = caller_saves[o];
+		arch_set_irn_register_req_out(res, pn_vc4_Bl_first_result + o, reg->single_req);
+	}
+
+	/* copy pinned attribute */
+	set_irn_pinned(res, get_irn_pinned(node));
+
+	/* IncSP to destroy the call stackframe */
+	ir_node *const call_stack = new_r_Proj(res, vc4_mode_gp, pn_vc4_Bl_stack);
+	incsp = be_new_IncSP(sp_reg, new_block, call_stack, -cconv->param_stack_size, 0);
+	/* if we are the last IncSP producer in a block then we have to keep
+	 * the stack value.
+	 * Note: This here keeps all producers which is more than necessary */
+	keep_alive(incsp);
+
+	pmap_insert(node_to_stack, node, incsp);
+
+	vc4_free_calling_convention(cconv);
+	return res;
 }
 
 static ir_node *gen_Phi(ir_node *node)
@@ -461,6 +613,22 @@ static ir_node *gen_Proj_Proj_Call(ir_node *node)
 	return new_r_Proj(new_call, mode, regn);
 }
 
+static ir_node *gen_Proj_Call(ir_node *node)
+{
+	unsigned pn        = get_Proj_num(node);
+	ir_node *call      = get_Proj_pred(node);
+	ir_node *new_call  = be_transform_node(call);
+	switch ((pn_Call)pn) {
+	case pn_Call_M:
+		return new_r_Proj(new_call, mode_M, pn_vc4_Bl_M);
+	case pn_Call_X_regular:
+	case pn_Call_X_except:
+	case pn_Call_T_result:
+		break;
+	}
+	panic("unexpected Call proj %u", pn);
+}
+
 static ir_node *gen_Proj_Proj(ir_node *node)
 {
 	ir_node *pred      = get_Proj_pred(node);
@@ -528,6 +696,7 @@ static void vc4_register_transformers(void)
 	be_set_transform_function(op_Add,     gen_Add);
 	be_set_transform_function(op_Address, gen_Address);
 	be_set_transform_function(op_And,     gen_And);
+	be_set_transform_function(op_Call,    gen_Call);
 	be_set_transform_function(op_Const,   gen_Const);
 	be_set_transform_function(op_Div,     gen_Div);
 	be_set_transform_function(op_Eor,     gen_Eor);
@@ -544,6 +713,8 @@ static void vc4_register_transformers(void)
 	be_set_transform_function(op_Start,   gen_Start);
 	be_set_transform_function(op_Store,   gen_Store);
 	be_set_transform_function(op_Sub,     gen_Sub);
+
+	be_set_transform_proj_function(op_Call,  gen_Proj_Call);
 	be_set_transform_proj_function(op_Load,  gen_Proj_Load);
 	be_set_transform_proj_function(op_Proj,  gen_Proj_Proj);
 	be_set_transform_proj_function(op_Start, gen_Proj_Start);

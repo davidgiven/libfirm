@@ -12,6 +12,6 @@
 
 extern ir_mode *vc4_mode_gp;
 
-void vc4_finish_graph(ir_graph *irg);
+extern void vc4_finish_graph(ir_graph *irg);
 
 #endif

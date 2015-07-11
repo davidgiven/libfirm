@@ -148,7 +148,7 @@ static void vc4_set_frame_offset(ir_node *irn, int bias)
 	} else {
 		vc4_attr_t *attr = get_vc4_attr(irn);
 		if (attr->is_frame_entity)
-			attr->offset += bias;
+			attr->constant += bias;
 	}
 }
 

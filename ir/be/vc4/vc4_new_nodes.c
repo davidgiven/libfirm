@@ -89,12 +89,6 @@ static void set_vc4_entity_mode(ir_node *node, ir_mode *entity_mode)
 	attr->entity_mode = entity_mode;
 }
 
-static void set_vc4_offset(ir_node *node, long offset)
-{
-	vc4_attr_t *attr = get_vc4_attr(node);
-	attr->offset = offset;
-}
-
 static void set_vc4_is_frame_entity(ir_node *node, bool is_frame_entity)
 {
 	vc4_attr_t *attr = get_vc4_attr(node);
@@ -107,7 +101,6 @@ static int vc4_attrs_equal(const ir_node *a, const ir_node *b)
 	const vc4_attr_t *attr_b = get_vc4_attr_const(b);
 	return attr_a->value == attr_b->value
 	    && attr_a->entity == attr_b->entity
-		&& attr_a->offset == attr_b->offset
 		&& attr_a->is_frame_entity == attr_b->is_frame_entity;
 }
 
