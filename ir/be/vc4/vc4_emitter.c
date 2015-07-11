@@ -56,6 +56,13 @@ static void vc4_emit_cfop_target(const ir_node *node)
 	be_gas_emit_block_name(block);
 }
 
+static void vc4_emit_offset(const ir_node *node)
+{
+	const vc4_attr_t *attr = get_vc4_attr_const(node);
+	be_emit_irprintf("0x%X", attr->offset);
+}
+
+
 void vc4_emitf(const ir_node *node, const char *format, ...)
 {
 	va_list ap;
@@ -127,6 +134,10 @@ void vc4_emitf(const ir_node *node, const char *format, ...)
 			vc4_emit_cfop_target(node);
 			break;
 		}
+
+		case 'o':
+			vc4_emit_offset(node);
+			break;
 
 		case '\n':
 			be_emit_char('\n');

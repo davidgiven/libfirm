@@ -24,8 +24,12 @@
 
 DEBUG_ONLY(static firm_dbg_module_t *dbg = NULL;)
 
+#define VC4_MACHINE_SIZE 32
+
+ir_mode *vc4_mode_gp;
+
 /**
- * Transforms the standard firm graph into a TEMLPATE firm graph
+ * Transforms the standard firm graph into a VC4 firm graph
  */
 static void vc4_select_instructions(ir_graph *irg)
 {
@@ -79,6 +83,7 @@ static void vc4_generate_code(FILE *output, const char *cup_name)
 		be_fix_stack_nodes(irg, &vc4_registers[REG_SP]);
 		be_birg_from_irg(irg)->non_ssa_regs = NULL;
 
+		vc4_finish_graph(irg);
 		vc4_emit_function(irg);
 
 		be_step_last(irg);
@@ -89,6 +94,9 @@ static void vc4_generate_code(FILE *output, const char *cup_name)
 
 static void vc4_init(void)
 {
+	vc4_mode_gp    = new_int_mode("vc4_gp", irma_twos_complement,
+	                              VC4_MACHINE_SIZE, 0, VC4_MACHINE_SIZE);
+
 	vc4_register_init();
 	vc4_create_opcodes();
 }

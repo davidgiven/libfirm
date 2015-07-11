@@ -19,6 +19,9 @@ vc4_attr_t *get_vc4_attr(ir_node *node);
 
 const vc4_attr_t *get_vc4_attr_const(const ir_node *node);
 
+vc4_memop_attr_t *get_vc4_memop_attr(ir_node *node);
+const vc4_memop_attr_t *get_vc4_memop_attr_const(const ir_node *node);
+
 /* Include the generated headers */
 #include "gen_vc4_new_nodes.h"
 

@@ -13,11 +13,15 @@
 #include "bearch.h"
 
 typedef struct vc4_attr_t vc4_attr_t;
+typedef struct vc4_memop_attr_t vc4_memop_attr_t;
 
 struct vc4_attr_t
 {
 	ir_tarval *value;
 	ir_entity *entity;
+	ir_mode *entity_mode;
+	unsigned is_frame_entity : 1;
+	long offset;
 };
 
 #endif

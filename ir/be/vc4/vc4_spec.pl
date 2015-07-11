@@ -4,7 +4,7 @@ $arch = "vc4";
 #
 # Modes
 #
-$mode_gp  = "mode_Iu"; # mode used by general purpose registers
+$mode_gp  = "vc4_mode_gp"; # mode used by general purpose registers
 
 # The node description is done as a perl hash initializer with the
 # following structure:
@@ -208,6 +208,16 @@ Load => {
 	ins       => [ "mem", "ptr" ],
 	outs      => [ "res", "M" ],
 	emit      => '%D0 = load (%S1)',
+},
+
+Ld => {
+	op_flags  => [ "uses_memory" ],
+	state     => "exc_pinned",
+	ins       => [ "ptr", "mem" ],
+	outs      => [ "res", "M" ],
+	in_reqs   => [ "gp", "none" ],
+	out_reqs  => [ "gp", "none" ],
+	emit      => 'ld %D0, %o(%S0)',
 },
 
 Store => {

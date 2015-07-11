@@ -22,6 +22,7 @@
 #include "betranshlp.h"
 #include "beirg.h"
 
+#include "bearch_vc4_t.h"
 #include "vc4_nodes_attr.h"
 #include "vc4_transform.h"
 #include "vc4_new_nodes.h"
@@ -396,10 +397,9 @@ static ir_node *gen_Proj_Proj_Start(ir_node *node)
 	ir_graph                 *const irg       = get_irn_irg(new_block);
 	unsigned                  const pn        = get_Proj_num(node);
 	reg_or_stackslot_t const *const param     = &cconv->parameters[pn];
-	arch_register_t    const *const reg0      = param->reg0;
-	if (reg0 != NULL) {
+	if (param->reg0 != NULL) {
 		/* argument transmitted in register */
-		return be_get_start_proj(irg, &start_val[reg0->global_index]);
+		return be_get_start_proj(irg, &start_val[param->reg0->global_index]);
 	} else {
 		/* argument transmitted on stack */
 		ir_node *const fp   = get_irg_frame(irg);
@@ -409,14 +409,17 @@ static ir_node *gen_Proj_Proj_Start(ir_node *node)
 		ir_node *load;
 		ir_node *value;
 
-		panic("stack arguments not supported yet");
-		#if 0
-		load  = new_bd_arm_Ldr(NULL, new_block, fp, mem, mode,
-							   param->entity, 0, 0, true);
-		value = new_r_Proj(load, arm_mode_gp, pn_arm_Ldr_res);
+		/* Offset isn't set here; it'll get fixed up at the last stage once
+		 * we know how big the stack frame is. */
+		load  = new_bd_vc4_Ld(NULL, new_block, fp, mem);
+		vc4_attr_t *attrs = get_vc4_attr(load);
+		attrs->is_frame_entity = true;
+		attrs->entity_mode = mode;
+		attrs->entity = param->entity;
+
+		value = new_r_Proj(load, vc4_mode_gp, pn_vc4_Ld_res);
 
 		set_irn_pinned(load, op_pin_state_floats);
-		#endif
 
 		return value;
 	}

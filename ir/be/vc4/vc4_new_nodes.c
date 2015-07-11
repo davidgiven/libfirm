@@ -24,6 +24,7 @@
 #include "bearch.h"
 #include "bedump.h"
 
+#include "bearch_vc4_t.h"
 #include "vc4_nodes_attr.h"
 #include "vc4_new_nodes.h"
 #include "gen_vc4_regalloc_if.h"
@@ -82,12 +83,32 @@ static void set_vc4_entity(ir_node *node, ir_entity *entity)
 	attr->entity = entity;
 }
 
+static void set_vc4_entity_mode(ir_node *node, ir_mode *entity_mode)
+{
+	vc4_attr_t *attr = get_vc4_attr(node);
+	attr->entity_mode = entity_mode;
+}
+
+static void set_vc4_offset(ir_node *node, long offset)
+{
+	vc4_attr_t *attr = get_vc4_attr(node);
+	attr->offset = offset;
+}
+
+static void set_vc4_is_frame_entity(ir_node *node, bool is_frame_entity)
+{
+	vc4_attr_t *attr = get_vc4_attr(node);
+	attr->is_frame_entity = is_frame_entity;
+}
+
 static int vc4_attrs_equal(const ir_node *a, const ir_node *b)
 {
 	const vc4_attr_t *attr_a = get_vc4_attr_const(a);
 	const vc4_attr_t *attr_b = get_vc4_attr_const(b);
 	return attr_a->value == attr_b->value
-	    && attr_a->entity == attr_b->entity;
+	    && attr_a->entity == attr_b->entity
+		&& attr_a->offset == attr_b->offset
+		&& attr_a->is_frame_entity == attr_b->is_frame_entity;
 }
 
 static void vc4_copy_attr(ir_graph *irg, const ir_node *old_node,
